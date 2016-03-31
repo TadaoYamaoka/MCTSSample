@@ -10,7 +10,9 @@ Python Tools for Visual Studioのプロジェクトになっています。
 実行するにはPythonがインストールされている必要があります。
 
 コマンドラインで、
+
 > python MCTSSample.py
+
 を実行します。
 
 プレイアウト回数を変更するには、引数にプレイアウト回数を指定します。
