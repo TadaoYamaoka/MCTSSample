@@ -246,7 +246,7 @@ def search_uct(board, ko, color, node, root_color):
 # 終局 勝敗を返す
 def end_game(board, color):
     # 中国ルールで数える
-
+    score = 0
     # 石の数
     stone_num = {BLACK : 0, WHITE : 0, SPACE : 0}
 
@@ -520,6 +520,7 @@ class MainWindow(QtGui.QWidget):
             if xy == PASS and pre_xy == PASS:
                 # 終局
                 print "end"
+                break
 
             # 描画更新
             self.update()
