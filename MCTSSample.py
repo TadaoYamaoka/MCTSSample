@@ -249,7 +249,6 @@ def end_game(board, color):
 
     # 石の数
     stone_num = {BLACK : 0, WHITE : 0, SPACE : 0}
-    score = 0
 
     for x in range(GRID):
         for y in range(GRID):
@@ -265,7 +264,8 @@ def end_game(board, color):
                 score += 1
             if mk[WHITE] > 0 and mk[BLACK] == 0:
                 score -= 1
-    score = stone_num[BLACK] - stone_num[WHITE] - KOMI
+
+    score += stone_num[BLACK] - stone_num[WHITE] - KOMI
 
     if color == BLACK:
         if score > 0:
@@ -518,11 +518,8 @@ class MainWindow(QtGui.QWidget):
                 break
 
             if xy == PASS and pre_xy == PASS:
-                if end_game(board, BLACK) > 0:
-                    print "black won."
-                else:
-                    print "white won."
-                break
+                # 終局
+                print "end"
 
             # 描画更新
             self.update()
@@ -534,10 +531,12 @@ class MainWindow(QtGui.QWidget):
     # マウスクリック
     def mousePressEvent(self, event):
         if isinstance(self.current_player, Human):
-            x = (event.pos().x() - BOARD_X0 + GRID_WIDTH/2) / GRID_WIDTH
-            y = (event.pos().y() - BOARD_Y0 + GRID_WIDTH/2) / GRID_WIDTH
-            #print "{0}, {1}".format(x, y)
-            self.current_player.set_xy(x, y)
+            if event.button() == QtCore.Qt.LeftButton:
+                x = (event.pos().x() - BOARD_X0 + GRID_WIDTH/2) / GRID_WIDTH
+                y = (event.pos().y() - BOARD_Y0 + GRID_WIDTH/2) / GRID_WIDTH
+                self.current_player.set_xy(x, y)
+            elif event.button() == QtCore.Qt.RightButton:
+                self.current_player.set_xy(0, 0)
 
     # 閉じる
     def closeEvent(self, event):
