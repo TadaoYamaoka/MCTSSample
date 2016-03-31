@@ -28,10 +28,10 @@ KO = 2
 EYE = 3
 
 # UCB用定数
-FPU = 10 # First Play Urgency
+FPU = 5 # First Play Urgency
 C = 0.31
 
-PLAYOUT_MAX = 50
+PLAYOUT_MAX = 300
 
 # 盤初期化
 def create_board():
@@ -48,6 +48,17 @@ def create_board():
 def get_xy(x, y):
     return x + (GRID+2) * y
 
+def get_x_y(xy):
+    return xy % (GRID+2),  xy / (GRID+2)
+
+# 盤面print(デバッグ用)
+def print_board(board):
+    for y in range(GRID):
+        for x in range(GRID):
+            xy = get_xy(x+1, y+1)
+            print "{0:2},".format(board[xy]) ,
+        print ""
+
 class UTCNode:
     xy = -1
     playout_num = 0
@@ -63,6 +74,10 @@ def expand_node(node, board):
             new_node = UTCNode()
             new_node.xy = xy
             node.child.append(new_node)
+    # PASSを追加
+    new_node = UTCNode()
+    new_node.xy = PASS
+    node.child.append(new_node)
 
 # コウの位置
 class Ko:
@@ -187,13 +202,12 @@ def move(board, ko, xy, color):
 # UCBからプレイアウトする手を選択
 def select_node_with_ucb(node):
     max_ucb = -999
-    selected_node = None
     for child in node.child:
         if child.playout_num == 0:
             # 未実行
             ucb = FPU + random.randrange(FPU)
         else:
-            ucb = child.win_num / child.playout_num + C * math.sqrt(math.log(node.playout_num_sum) / child.playout_num)
+            ucb = float(child.win_num) / child.playout_num + C * math.sqrt(math.log(node.playout_num_sum) / child.playout_num)
             
         if ucb > max_ucb:
             max_ucb = ucb
@@ -202,12 +216,10 @@ def select_node_with_ucb(node):
     return selected_node
 
 # UCT
-def search_uct(board, ko, color, node):
+def search_uct(board, ko, color, node, root_color):
     # UCBからプレイアウトする手を選択
     while True:
         selected_node = select_node_with_ucb(node)
-        if selected_node == None:
-            return 0
         err = move(board, ko, selected_node.xy, color)
         if err == SUCCESS:
             break
@@ -217,12 +229,12 @@ def search_uct(board, ko, color, node):
 
     # 閾値以下の場合プレイアウト
     if selected_node.playout_num_sum < 1:
-        win = -playout(board, ko, selected_node, -color)
+        win = playout(board, ko, selected_node, -color, root_color)
     else:
         # ノードを展開
         if len(selected_node.child) == 0:
             expand_node(selected_node, board)
-        win = -search_uct(board, ko, -color, selected_node)
+        win = search_uct(board, ko, -color, selected_node, root_color)
 
     # 勝率を更新
     selected_node.win_num += win
@@ -255,25 +267,28 @@ def end_game(board, color):
                 score -= 1
     score = stone_num[BLACK] - stone_num[WHITE] - KOMI
 
-    win = 0
-    if score > 0:
-        win = 1
-
     if color == BLACK:
-        return win
-    else:
-        return -win
+        if score > 0:
+            return 1
+        else:
+            return 0
+    if color == WHITE:
+        if score < 0:
+            return 1
+        else:
+            return 0
 
 # プレイアウト
-def playout(board, ko, node, color):
+def playout(board, ko, node, color, root_color):
     # 終局までランダムに打つ
+    color_tmp = color
     for loop in range(GRID*GRID + 200):
         pre_xy = 0
 
         # 候補手一覧
         possibles = []
         for xy, c in enumerate(board):
-            if c == 0:
+            if c == SPACE:
                 possibles.append(xy)
         
         while True:
@@ -284,7 +299,7 @@ def playout(board, ko, node, color):
                 selected = possibles[random.randrange(len(possibles))]
 
             # 石を打つ
-            err = move(board, ko, selected, color)
+            err = move(board, ko, selected, color_tmp)
 
             if err == SUCCESS:
                 break;
@@ -300,10 +315,10 @@ def playout(board, ko, node, color):
         pre_xy = selected
 
         # プレイヤー交代
-        color = -color
+        color_tmp = -color_tmp
 
     # 終局 勝敗を返す
-    return end_game(board, color)
+    return end_game(board, root_color)
 
 # 思考ルーチン
 class MCTSSample:
@@ -312,8 +327,8 @@ class MCTSSample:
         self.color = color
 
     def select_move(self, board, ko):
-        root = UTCNode()
-        expand_node(root, board)
+        self.root = UTCNode()
+        expand_node(self.root, board)
 
         for i in range(PLAYOUT_MAX):
             # 局面コピー
@@ -321,28 +336,60 @@ class MCTSSample:
             ko_tmp = ko.copy()
 
             # UCT
-            search_uct(board_tmp, ko_tmp, self.color, root)
+            search_uct(board_tmp, ko_tmp, self.color, self.root, self.color)
 
-        # 最も勝率の高い手を選ぶ
-        p_max = 0
-        best_move = None
-        for child in root.child:
+        # 最もプレイアウト数が多い手を選ぶ
+        num_max = -999
+        rate_min = 1 # 勝率
+        rate_max = 0 # 勝率
+        for child in self.root.child:
             if child.playout_num > 0:
-                p = child.win_num / child.playout_num
-                if p >= p_max:
+                num = child.playout_num
+                if num > num_max:
                     best_move = child
-                    p_max = p
+                    num_max = num
 
-        if best_move == None:
+                if rate_min == 1:
+                    rate = float(child.win_num) / child.playout_num
+                    if rate < rate_min:
+                        rate_min = rate
+                if rate_max == 0:
+                    rate = float(child.win_num) / child.playout_num
+                    if rate > rate_max:
+                        rate_max = rate
+
+        if rate_min == 1:
+            return PASS
+        if rate_max == 0:
             return PASS
 
         return best_move.xy
+
+# 人間プレイヤー
+class Human:
+    xy = -1
+
+    def __init__(self, color):
+        self.color = color
+
+    def select_move(self, board, ko):
+
+        while self.xy < 0:
+            time.sleep(0.1)
+            QtCore.QCoreApplication.processEvents()
+
+        xy = self.xy
+        self.xy = -1
+        return xy
+
+    def set_xy(self, x, y):
+        self.xy = get_xy(x, y)
 
 # メインウィンドウ
 class MainWindow(QtGui.QWidget):
 
     # 初期化
-    def __init__(self, app):
+    def __init__(self):
         super(MainWindow, self).__init__()
         self.app = app
 
@@ -355,6 +402,7 @@ class MainWindow(QtGui.QWidget):
         # 思考ルーチン一覧
         self.player_lists = []
         self.player_lists.append(MCTSSample)
+        self.player_lists.append(Human)
 
 
         # プレイヤー選択
@@ -382,6 +430,8 @@ class MainWindow(QtGui.QWidget):
         for player in self.player_lists:
             for cmb in self.cmbPlayer:
                 cmb.addItem(player.__name__)
+
+        self.current_player = None
 
         # 開始ボタン
         self.btnStart = QtGui.QPushButton(self)
@@ -420,6 +470,14 @@ class MainWindow(QtGui.QWidget):
                         painter.setBrush(QtCore.Qt.white)
                     painter.drawEllipse(BOARD_X0 + GRID_WIDTH * (x+0.5), BOARD_Y0 + GRID_WIDTH * (y+0.5), GRID_WIDTH, GRID_WIDTH)
 
+        # 位置ごとの勝率を表示
+        if isinstance(self.current_player, MCTSSample):
+            painter.setPen(QtCore.Qt.red)
+            for child in self.current_player.root.child:
+                x, y = get_x_y(child.xy)
+                text = "{0:^3}/{1:^3}".format(child.win_num, child.playout_num)
+                painter.drawText(BOARD_X0 + GRID_WIDTH * (x-0.35), BOARD_Y0 + GRID_WIDTH * y, text)
+
         painter.end()
 
     # コンボボックス選択(Black)
@@ -437,7 +495,7 @@ class MainWindow(QtGui.QWidget):
         players = {BLACK : self.selectedPlayer[0](BLACK), WHITE : self.selectedPlayer[1](WHITE)}
 
         color = BLACK
-        pre_xy = PASS
+        pre_xy = -1
         while True:
             # 局面コピー
             board_tmp = self.board[:]
@@ -445,7 +503,10 @@ class MainWindow(QtGui.QWidget):
 
             # 手を選択
             start = time.time()
-            xy = players[color].select_move(board_tmp, ko_tmp)
+
+            self.current_player = players[color]
+            xy = self.current_player.select_move(board_tmp, ko_tmp)
+
             elapsed_time = time.time() - start
             print ("elapsed_time:{0}".format(elapsed_time)) + "[sec]"
 
@@ -453,23 +514,41 @@ class MainWindow(QtGui.QWidget):
             err = move(self.board, self.ko, xy, color)
 
             if err != SUCCESS:
+                print "error {0},{1}".format(get_x_y(xy))
                 break
 
             if xy == PASS and pre_xy == PASS:
+                if end_game(board, BLACK) > 0:
+                    print "black won."
+                else:
+                    print "white won."
                 break
+
+            # 描画更新
+            self.update()
+            QtCore.QCoreApplication.processEvents()
 
             pre_xy = xy
             color = -color
-            self.update()
-            app.processEvents()
 
     # マウスクリック
     def mousePressEvent(self, event):
-        print "clicked"
+        if isinstance(self.current_player, Human):
+            x = (event.pos().x() - BOARD_X0 + GRID_WIDTH/2) / GRID_WIDTH
+            y = (event.pos().y() - BOARD_Y0 + GRID_WIDTH/2) / GRID_WIDTH
+            #print "{0}, {1}".format(x, y)
+            self.current_player.set_xy(x, y)
+
+    # 閉じる
+    def closeEvent(self, event):
+        QtCore.QCoreApplication.quit()
+        sys.exit()
 
 # main
 if __name__ == '__main__':
+    if len(sys.argv) >= 2:
+        PLAYOUT_MAX = int(sys.argv[1])
     app = QtGui.QApplication(sys.argv)
-    mainwnd = MainWindow(app)
+    mainwnd = MainWindow()
     mainwnd.show()
     sys.exit(app.exec_())
