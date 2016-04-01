@@ -59,7 +59,7 @@ def print_board(board):
             print "{0:2},".format(board[xy]) ,
         print ""
 
-class UTCNode:
+class UCTNode:
     xy = -1
     playout_num = 0
     playout_num_sum = 0
@@ -71,11 +71,11 @@ class UTCNode:
 def expand_node(node, board):
     for xy, c in enumerate(board):
         if c == SPACE:
-            new_node = UTCNode()
+            new_node = UCTNode()
             new_node.xy = xy
             node.child.append(new_node)
     # PASSを追加
-    new_node = UTCNode()
+    new_node = UCTNode()
     new_node.xy = PASS
     node.child.append(new_node)
 
@@ -327,7 +327,7 @@ class MCTSSample:
         self.color = color
 
     def select_move(self, board, ko):
-        self.root = UTCNode()
+        self.root = UCTNode()
         expand_node(self.root, board)
 
         for i in range(PLAYOUT_MAX):
