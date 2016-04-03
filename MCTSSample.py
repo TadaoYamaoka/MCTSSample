@@ -30,6 +30,7 @@ EYE = 3
 # UCB用定数
 FPU = 5 # First Play Urgency
 C = 0.31
+THR = 1
 
 PLAYOUT_MAX = 300
 
@@ -228,7 +229,7 @@ def search_uct(board, ko, color, node, root_color):
             node.child.remove(selected_node)
 
     # 閾値以下の場合プレイアウト
-    if selected_node.playout_num_sum < 1:
+    if selected_node.playout_num < THR:
         win = playout(board, ko, selected_node, -color, root_color)
     else:
         # ノードを展開
@@ -282,8 +283,8 @@ def end_game(board, color):
 def playout(board, ko, node, color, root_color):
     # 終局までランダムに打つ
     color_tmp = color
+    pre_xy = -1
     for loop in range(GRID*GRID + 200):
-        pre_xy = 0
 
         # 候補手一覧
         possibles = []
